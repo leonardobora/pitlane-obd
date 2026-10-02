@@ -33,6 +33,20 @@ data class VehicleTelemetry(
         ObdPid.CONTROL_MODULE_VOLTAGE -> copy(voltageV = value, receivedAtMs = atMs)
     }
 
+    fun withoutReading(pid: ObdPid, atMs: Long = System.currentTimeMillis()): VehicleTelemetry = when (pid) {
+        ObdPid.RPM -> copy(rpm = null, receivedAtMs = atMs)
+        ObdPid.SPEED -> copy(speedKmh = null, receivedAtMs = atMs)
+        ObdPid.COOLANT_TEMP -> copy(coolantC = null, receivedAtMs = atMs)
+        ObdPid.INTAKE_TEMP -> copy(intakeC = null, receivedAtMs = atMs)
+        ObdPid.THROTTLE -> copy(throttlePct = null, receivedAtMs = atMs)
+        ObdPid.ENGINE_LOAD -> copy(engineLoadPct = null, receivedAtMs = atMs)
+        ObdPid.INTAKE_PRESSURE -> copy(manifoldKpa = null, receivedAtMs = atMs)
+        ObdPid.SHORT_FUEL_TRIM -> copy(shortFuelTrimPct = null, receivedAtMs = atMs)
+        ObdPid.LONG_FUEL_TRIM -> copy(longFuelTrimPct = null, receivedAtMs = atMs)
+        ObdPid.FUEL_LEVEL -> copy(fuelLevelPct = null, receivedAtMs = atMs)
+        ObdPid.MAF -> copy(mafGps = null, receivedAtMs = atMs)
+        ObdPid.CONTROL_MODULE_VOLTAGE -> copy(voltageV = null, receivedAtMs = atMs)
+    }
     companion object {
         /** Coherent synthetic values for UI exploration; never used in LIVE state. */
         fun demo(tick: Int, nowMs: Long = System.currentTimeMillis()): VehicleTelemetry {

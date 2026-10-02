@@ -76,20 +76,25 @@ private val Orange = Color(0xFFF05A3E)
 private val Green = Color(0xFF48D597)
 
 class MainActivity : ComponentActivity() {
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    private var bondedDevicesState = mutableStateOf<List<BluetoothDevice>>(emptyList())
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        bondedDevicesState.value = bondedDevices()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        bondedDevicesState.value = bondedDevices()
         setContent {
             PitlaneTheme {
                 PitlaneApp(
                     onRequestBluetooth = {
+                        bondedDevicesState.value = bondedDevices()
                         val permissions = if (Build.VERSION.SDK_INT >= 31) {
                             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
                         } else arrayOf(Manifest.permission.BLUETOOTH, Manifest.permission.ACCESS_FINE_LOCATION)
                         permissionLauncher.launch(permissions)
                     },
-                    bluetoothDevices = bondedDevices()
+                    bluetoothDevices = bondedDevicesState.value
                 )
             }
         }
@@ -143,8 +148,8 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
             try {
                 transport.connect()
                 val session = ObdSession(transport)
-                activeSession = session
                 session.initialize()
+                activeSession = session
                 mode = ConnectionMode.LIVE
                 while (true) {
                     telemetry = session.readTelemetry(telemetry)
