@@ -1,7 +1,8 @@
 # Pitlane OBD
 
-**A privacy-first, open-source Android OBD-II dashboard.** Live vehicle data in a motorsport-inspired cockpit; original visual design, not a clone of another product.
+**Created by Leonardo Bora.** Source repository: [github.com/leonardobora/pitlane-obd](https://github.com/leonardobora/pitlane-obd).
 
+**A privacy-first, open-source Android OBD-II dashboard.** Live vehicle data in a motorsport-inspired cockpit; original visual design, not a clone of another product.
 > OBD-II is for diagnostics, not vehicle control. Use Pitlane while parked. Never operate the phone while driving.
 
 ## Current release

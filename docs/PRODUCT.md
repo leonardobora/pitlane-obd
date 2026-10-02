@@ -7,6 +7,7 @@ A polished, honest, local-first OBD-II instrument panel for Android: fast to und
 ## Audience and platform
 
 - Android phone, first verified on Bora's Samsung Galaxy S21 (SM-G991B, Android 13).
+- Initial field-test target: **Ford Ka 2017 1.0 SE, Brazilian market**. Generic OBDBr-2/OBD-II emissions telemetry is the target; the exact responding protocol and supported PIDs must be confirmed from the adapter and vehicle tomorrow.
 - Bluetooth ELM327-family adapters; first release should implement standard Bluetooth Classic SPP and a documented BLE UART profile where possible.
 - No cloud account or analytics. Vehicle data stays on-device unless the user deliberately exports it.
 
