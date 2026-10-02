@@ -57,6 +57,8 @@ import androidx.core.content.ContextCompat
 import dev.pitlane.obd.engine.ObdSession
 import dev.pitlane.obd.model.AppTab
 import dev.pitlane.obd.model.ConnectionMode
+import dev.pitlane.obd.model.DashboardCard
+import dev.pitlane.obd.model.DashboardLayout
 import dev.pitlane.obd.model.VehicleTelemetry
 import dev.pitlane.obd.protocol.DecodedTroubleCode
 import dev.pitlane.obd.protocol.ReadinessStatus
@@ -116,6 +118,12 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
     var showWifi by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val dashboardPreferences = remember(context) {
+        context.getSharedPreferences("dashboard_preferences", android.content.Context.MODE_PRIVATE)
+    }
+    var dashboardLayout by remember {
+        mutableStateOf(DashboardLayout.fromStoredValue(dashboardPreferences.getString(DashboardLayout.STORAGE_KEY, null)))
+    }
     LaunchedEffect(mode) {
         if (mode == ConnectionMode.DEMO) {
             while (true) {
@@ -155,7 +163,7 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
             Header(mode, onConnect = { showDevices = true }, onDemo = { sessionJob?.cancel(); mode = ConnectionMode.DEMO })
             error?.let { Text(it, color = Orange, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp)) }
             when (tab) {
-                AppTab.LIVE -> LiveScreen(telemetry, mode)
+                AppTab.LIVE -> LiveScreen(telemetry, mode, dashboardLayout)
                 AppTab.FAULTS -> FaultsScreen(readiness, codes, onRead = {
                     val session = activeSession
                     if (session == null) {
@@ -170,7 +178,15 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
                     }
                 })
                 AppTab.SESSION -> SessionScreen(telemetry)
-                AppTab.SETTINGS -> SettingsScreen(onRequestBluetooth, onWifi = { showWifi = true })
+                AppTab.SETTINGS -> SettingsScreen(
+                    onBluetooth = onRequestBluetooth,
+                    onWifi = { showWifi = true },
+                    selectedLayout = dashboardLayout,
+                    onLayoutSelected = { selected ->
+                        dashboardLayout = selected
+                        dashboardPreferences.edit().putString(DashboardLayout.STORAGE_KEY, selected.name).apply()
+                    }
+                )
             }
         }
     }
@@ -189,18 +205,20 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
     }
 }
 
-@Composable private fun LiveScreen(t: VehicleTelemetry, mode: ConnectionMode) {
+@Composable private fun LiveScreen(t: VehicleTelemetry, mode: ConnectionMode, layout: DashboardLayout) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            HeroGauge("SPEED", t.speedKmh, "km/h", Modifier.weight(1f))
-            HeroGauge("RPM", t.rpm, "rpm", Modifier.weight(1f))
+        if (layout == DashboardLayout.COCKPIT) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                HeroGauge("SPEED", t.speedKmh, "km/h", Modifier.weight(1f))
+                HeroGauge("RPM", t.rpm, "rpm", Modifier.weight(1f))
+            }
         }
-        Text("LIVE TELEMETRY", color = TextMuted, fontSize = 11.sp, letterSpacing = 2.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Metric("COOLANT", t.coolantC, "°C", Modifier.weight(1f)); Metric("THROTTLE", t.throttlePct, "%", Modifier.weight(1f)); Metric("LOAD", t.engineLoadPct, "%", Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Metric("MANIFOLD", t.manifoldKpa, "kPa", Modifier.weight(1f)); Metric("FUEL", t.fuelLevelPct, "%", Modifier.weight(1f)); Metric("VOLTAGE", t.voltageV, "V", Modifier.weight(1f))
+        Text(if (layout == DashboardLayout.COCKPIT) "LIVE TELEMETRY" else "RACE TELEMETRY", color = TextMuted, fontSize = 11.sp, letterSpacing = 2.sp)
+        layout.cards.drop(if (layout == DashboardLayout.COCKPIT) 2 else 0).chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { card -> TelemetryCard(card, t, Modifier.weight(1f)) }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
         Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Text(if (mode == ConnectionMode.DEMO) "Synthetic telemetry — no vehicle connected" else "Read-only generic emissions telemetry", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(12.dp)) }
     }
@@ -208,12 +226,15 @@ private fun PitlaneApp(onRequestBluetooth: () -> Unit, bluetoothDevices: List<Bl
 
 @Composable private fun HeroGauge(label: String, value: Double?, unit: String, modifier: Modifier) { Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = modifier) { Column(Modifier.padding(16.dp)) { Text(label, color = TextMuted, fontSize = 10.sp, letterSpacing = 1.5.sp); Text(value?.let { if (unit == "rpm") it.toInt().toString() else "%.0f".format(it) } ?: "—", color = TextMain, fontSize = 42.sp, fontWeight = FontWeight.Black); Text(unit, color = Orange, fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }
 @Composable private fun Metric(label: String, value: Double?, unit: String, modifier: Modifier) { Surface(color = Panel2, shape = RoundedCornerShape(8.dp), modifier = modifier) { Column(Modifier.padding(10.dp)) { Text(label, color = TextMuted, fontSize = 9.sp); Text(value?.let { "%.1f".format(it) } ?: "—", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold); Text(unit, color = TextMuted, fontSize = 10.sp) } } }
+@Composable private fun TelemetryCard(card: DashboardCard, telemetry: VehicleTelemetry, modifier: Modifier) {
+    Metric(card.label, card.valueOf(telemetry), card.unit, modifier)
+}
 
 @Composable private fun FaultsScreen(readiness: ReadinessStatus?, codes: List<DecodedTroubleCode>, onRead: () -> Unit) { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("FAULTS & READINESS", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)); Button(onClick = onRead) { Text("READ FROM ADAPTER") }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text("DIAGNOSTIC TROUBLE CODES", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp)); Text(if (codes.isEmpty()) "No live reading yet" else codes.joinToString { it.code }, color = TextMain) } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text("READINESS MONITORS", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Spacer(Modifier.height(8.dp)); Text(readiness?.let { "MIL: ${if (it.milOn) "ON" else "OFF"}  •  DTCs: ${it.confirmedDtcCount}" } ?: "Connect an adapter to inspect monitor status", color = if (readiness?.milOn == true) Orange else TextMain); readiness?.monitors?.forEach { monitor -> Text("${if (monitor.complete) "✓" else "○"} ${monitor.name}", color = if (monitor.complete) Green else TextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp)) } } } } }
 
 @Composable private fun SessionScreen(t: VehicleTelemetry) { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("SESSION", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)); Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp)) { Text("LOCAL-ONLY SESSION", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Spacer(Modifier.height(10.dp)); Text("Samples are not uploaded. Export will be added after the live adapter path is verified.", color = TextMain, fontSize = 14.sp); Spacer(Modifier.height(10.dp)); Text("Last sample: ${t.receivedAtMs}", color = TextMuted, fontSize = 11.sp) } } } }
 
-@Composable private fun SettingsScreen(onBluetooth: () -> Unit, onWifi: () -> Unit) { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("SETTINGS", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)); Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("YOUR VEHICLE", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("Ford Ka 2017 • 1.0 SE • Brazil", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Bold); Text("Generic OBD / OBDBr-2 telemetry. Pitlane will auto-detect the adapter protocol with ATSP0; live compatibility is confirmed by the adapter response tomorrow.", color = TextMuted, fontSize = 12.sp) } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("BLUETOOTH CONNECTION", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("1. Park safely. Turn the ignition to ON; for the first connection, leave the engine off.", color = TextMain, fontSize = 12.sp); Text("2. Plug the ELM327 into the 16-pin OBD port below the dashboard, near the steering column. Confirm its LEDs power on.", color = TextMain, fontSize = 12.sp); Text("3. On Android: Settings → Connections → Bluetooth. Pair with OBDII / ELM327. Use the PIN printed by the adapter; common defaults are 1234 or 0000, but do not assume one.", color = TextMain, fontSize = 12.sp); Text("4. Return to Pitlane, tap CONNECT, grant Nearby devices, and select the paired adapter.", color = TextMain, fontSize = 12.sp); Text("5. Wait for LIVE, then start the engine. If it fails, capture the adapter name, ATI response, and exact error; do not keep cycling the ignition with the adapter plugged in.", color = Orange, fontSize = 12.sp); OutlinedButton(onClick = onBluetooth) { Text("CHOOSE PAIRED ADAPTER") } } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("ADAPTERS & PRIVACY", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); OutlinedButton(onClick = onWifi) { Text("Wi-Fi adapter") }; HorizontalDivider(color = Color(0xFF2A3540)); Text("Privacy: no account, no analytics, no internet permission. Vehicle data stays on-device.", color = TextMuted, fontSize = 12.sp); Text("Safety: read-only generic OBD telemetry. Never use the app while driving. Do not clear diagnostic data before recording it.", color = TextMuted, fontSize = 12.sp) } }; Surface(color = Panel2, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("ABOUT PITLANE", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("Pitlane OBD • open source", color = TextMain, fontWeight = FontWeight.Bold); Text("Created by Leonardo Bora", color = TextMain, fontSize = 12.sp); Text("© 2026 Leonardo Bora • Apache-2.0", color = TextMuted, fontSize = 11.sp); Text("github.com/leonardobora/pitlane-obd", color = Orange, fontSize = 11.sp) } } } }
+@Composable private fun SettingsScreen(onBluetooth: () -> Unit, onWifi: () -> Unit, selectedLayout: DashboardLayout, onLayoutSelected: (DashboardLayout) -> Unit) { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("SETTINGS", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)); Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("DASHBOARD LAYOUT", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); DashboardLayout.entries.forEach { layout -> FilterChip(selected = layout == selectedLayout, onClick = { onLayoutSelected(layout) }, label = { Text(layout.title) }); Text(layout.description, color = TextMuted, fontSize = 11.sp) } } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("YOUR VEHICLE", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("Ford Ka 2017 • 1.0 SE • Brazil", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Bold); Text("Generic OBD / OBDBr-2 telemetry. Pitlane will auto-detect the adapter protocol with ATSP0; live compatibility is confirmed by the adapter response tomorrow.", color = TextMuted, fontSize = 12.sp) } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("BLUETOOTH CONNECTION", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("1. Park safely. Turn the ignition to ON; for the first connection, leave the engine off.", color = TextMain, fontSize = 12.sp); Text("2. Plug the ELM327 into the 16-pin OBD port below the dashboard, near the steering column. Confirm its LEDs power on.", color = TextMain, fontSize = 12.sp); Text("3. On Android: Settings → Connections → Bluetooth. Pair with OBDII / ELM327. Use the PIN printed by the adapter; common defaults are 1234 or 0000, but do not assume one.", color = TextMain, fontSize = 12.sp); Text("4. Return to Pitlane, tap CONNECT, grant Nearby devices, and select the paired adapter.", color = TextMain, fontSize = 12.sp); Text("5. Wait for LIVE, then start the engine. If it fails, capture the adapter name, ATI response, and exact error; do not keep cycling the ignition with the adapter plugged in.", color = Orange, fontSize = 12.sp); OutlinedButton(onClick = onBluetooth) { Text("CHOOSE PAIRED ADAPTER") } } }; Surface(color = Panel, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("ADAPTERS & PRIVACY", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); OutlinedButton(onClick = onWifi) { Text("Wi-Fi adapter") }; HorizontalDivider(color = Color(0xFF2A3540)); Text("Privacy: no account, no analytics, no internet permission. Vehicle data stays on-device.", color = TextMuted, fontSize = 12.sp); Text("Safety: read-only generic OBD telemetry. Never use the app while driving. Do not clear diagnostic data before recording it.", color = TextMuted, fontSize = 12.sp) } }; Surface(color = Panel2, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("ABOUT PITLANE", color = TextMuted, fontSize = 10.sp, letterSpacing = 1.sp); Text("Pitlane OBD • open source", color = TextMain, fontWeight = FontWeight.Bold); Text("Created by Leonardo Bora", color = TextMain, fontSize = 12.sp); Text("© 2026 Leonardo Bora • Apache-2.0", color = TextMuted, fontSize = 11.sp); Text("github.com/leonardobora/pitlane-obd", color = Orange, fontSize = 11.sp) } } } }
 
 @Composable private fun BottomTabs(selected: AppTab, onSelect: (AppTab) -> Unit) { TabRow(selectedTabIndex = AppTab.entries.indexOf(selected), containerColor = Ink, contentColor = Orange) { AppTab.entries.forEach { tab -> TabItem(tab, selected == tab, onSelect) } } }
 @Composable private fun TabItem(tab: AppTab, selected: Boolean, onSelect: (AppTab) -> Unit) { Text(tab.name, color = if (selected) Orange else TextMuted, fontSize = 10.sp, modifier = Modifier.clickable { onSelect(tab) }.padding(vertical = 18.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
